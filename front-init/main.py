@@ -1,5 +1,6 @@
 import json
 import pathlib
+import socket
 import urllib.parse
 import mimetypes
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -12,16 +13,17 @@ class HTTPHandler(BaseHTTPRequestHandler):
         # self.send_html("message.html")
         body = self.rfile.read(int(self.headers['Content-Length']))
         body = urllib.parse.unquote_plus(body.decode())
-        # payload = {[el for el in body.split(' ')]}
-        # with open(BASE_DIR.joinpath('storage/data.json'), 'w', encoding='utf-8') as fd:
-        #     json.dump(payload, fd, ensure_ascii=False)
-        print(body)
+        payload = {key: value for key, value in [el.split('=') for el in body.split('&')]}
+
+        with open(BASE_DIR.joinpath('storage/data.json'), 'w', encoding='utf-8') as fd:
+            json.dump(payload, fd, ensure_ascii=False)
 
         self.send_response(302)
         self.send_header("Location", "/message")
         self.end_headers()
 
     def do_GET(self):
+
         route = urllib.parse.urlparse(self.path)
         match route.path:
             case "/":
@@ -30,6 +32,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 self.send_html("message.html")
             case _:
                file = BASE_DIR / route.path[1:]
+
                if file.exists():
                    self.send_static(file)
                else:
