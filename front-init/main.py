@@ -1,22 +1,36 @@
 import json
+import logging
 import pathlib
 import socket
 import urllib.parse
 import mimetypes
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from threading import Thread
 
 BASE_DIR = pathlib.Path()
+SERVER_IP = '127.0.0.1'
+SERVER_PORT = 5000
+BUFFER = 1024
+
+
+def send_data_to_socket(body):
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client_socket.sendto(body, (SERVER_IP, SERVER_PORT))
+    client_socket.close()
 
 
 class HTTPHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         # self.send_html("message.html")
         body = self.rfile.read(int(self.headers['Content-Length']))
-        body = urllib.parse.unquote_plus(body.decode())
-        payload = {key: value for key, value in [el.split('=') for el in body.split('&')]}
-
-        with open(BASE_DIR.joinpath('storage/data.json'), 'w', encoding='utf-8') as fd:
-            json.dump(payload, fd, ensure_ascii=False)
+        send_data_to_socket(body)
+        # body = urllib.parse.unquote_plus(body.decode())
+        # payload = {key: value for key, value in [el.split('=') for el in
+        #                                          body.split('&')]}
+        #
+        # with open(BASE_DIR.joinpath('storage/data.json'), 'w',
+        #           encoding='utf-8') as fd:
+        #     json.dump(payload, fd, ensure_ascii=False)
 
         self.send_response(302)
         self.send_header("Location", "/message")
@@ -58,7 +72,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
 
 
 def run(server=HTTPServer, handler=HTTPHandler):
-    address = ("", 3000)
+    address = ("0.0.0.0", 3000)
     http_server = server(address, handler)
     try:
         http_server.serve_forever()
@@ -66,5 +80,46 @@ def run(server=HTTPServer, handler=HTTPHandler):
         http_server.server_close()
 
 
+def save_data(data):
+    body = urllib.parse.unquote_plus(data.decode())
+    try:
+        payload = {key: value for key, value in [el.split('=') for el in
+                                                 body.split('&')]}
+
+        with open(BASE_DIR.joinpath('storage/data.json'), 'w',
+                  encoding='utf-8') as fd:
+            json.dump(payload, fd, ensure_ascii=False)
+    except ValueError as err:
+        logging.error(f"Field parse data {body} with error {err}")
+    except OSError as err:
+        logging.error(f"Field write data {body} is mistake {err}")
+
+
+def run_socket_server(ip, port):
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server = ip, port
+    server_socket.bind(server)
+    try:
+        while True:
+            data, address = server_socket.recv(BUFFER)
+            save_data(data)
+    except KeyboardInterrupt:
+        logging.info('Socket server stopped')
+    finally:
+        server_socket.close()
+
+
 if __name__ == "__main__":
-    run()
+    logging.basicConfig(level=logging.INFO, format="%(threadName)s %(message)s")
+
+    STORAGE_DIR = pathlib.Path().joinpath('storage')
+    FILE_STORAGE = STORAGE_DIR / 'data.json'
+    if not FILE_STORAGE.exists():
+        with open(FILE_STORAGE, 'w', encoding='utf-8') as fd:
+            json.dump({}, fd, ensure_ascii=False)
+
+    thread_server = Thread(target=run)
+    thread_server.start()
+
+    thread_socket = Thread(target=run_socket_server(SERVER_IP, SERVER_PORT))
+    thread_socket.start()
